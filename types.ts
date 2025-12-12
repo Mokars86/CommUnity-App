@@ -30,6 +30,7 @@ export interface User {
   location: string;
   reputation: number;
   isVerified: boolean;
+  isAdmin?: boolean; // New Role Flag
 }
 
 export interface Post {
@@ -42,6 +43,10 @@ export interface Post {
   comments: number;
   timestamp: string;
   alertLevel?: 'emergency' | 'warning' | 'info';
+  // New Enhanced Fields
+  title?: string;
+  price?: string;
+  eventDate?: string;
 }
 
 export interface ChatPreview {

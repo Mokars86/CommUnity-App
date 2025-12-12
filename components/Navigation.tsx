@@ -14,14 +14,14 @@ const Navigation: React.FC<NavigationProps> = ({ currentView, setView }) => {
 
   const navItems = [
     { view: ViewState.HOME, icon: Icons.Home, label: 'Home' },
-    { view: ViewState.MAP, icon: Icons.Map, label: 'Map' },
+    { view: ViewState.MARKETPLACE, icon: Icons.Market, label: 'Market' },
     { view: ViewState.CREATE_POST, icon: Icons.Plus, label: 'Post', primary: true },
     { view: ViewState.CHATS, icon: Icons.Chat, label: 'Chats' },
     { view: ViewState.PROFILE, icon: Icons.User, label: 'Profile' },
   ];
 
   return (
-    <div className="fixed bottom-0 left-0 w-full bg-white border-t border-gray-200 shadow-lg pb-safe safe-area-inset-bottom z-50">
+    <div className="fixed bottom-0 left-0 w-full bg-white dark:bg-gray-900 border-t border-gray-200 dark:border-gray-800 shadow-lg pb-safe safe-area-inset-bottom z-50 transition-colors duration-300">
       <div className="flex justify-around items-center h-16 max-w-md mx-auto">
         {navItems.map((item) => {
           const isActive = currentView === item.view;
@@ -43,7 +43,7 @@ const Navigation: React.FC<NavigationProps> = ({ currentView, setView }) => {
             <button
               key={item.label}
               onClick={() => setView(item.view)}
-              className={`flex flex-col items-center justify-center w-full h-full space-y-1 ${isActive ? 'text-teal-600' : 'text-gray-400 hover:text-gray-600'}`}
+              className={`flex flex-col items-center justify-center w-full h-full space-y-1 ${isActive ? 'text-teal-600 dark:text-teal-400' : 'text-gray-400 dark:text-gray-500 hover:text-gray-600 dark:hover:text-gray-300'}`}
             >
               <Icon size={24} strokeWidth={isActive ? 2.5 : 2} />
               <span className="text-[10px] font-medium">{item.label}</span>

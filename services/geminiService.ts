@@ -39,6 +39,38 @@ export const generatePostEnhancement = async (draft: string, type: string): Prom
   }
 };
 
+export const generateCommunityImage = async (prompt: string): Promise<string | null> => {
+  if (!ai) return null;
+
+  try {
+    const response = await ai.models.generateContent({
+      model: 'gemini-3-pro-image-preview',
+      contents: {
+        parts: [
+          { text: prompt }
+        ]
+      },
+      config: {
+        imageConfig: {
+          aspectRatio: "16:9",
+          imageSize: "1K"
+        }
+      }
+    });
+
+    // Extract image from response
+    for (const part of response.candidates?.[0]?.content?.parts || []) {
+      if (part.inlineData) {
+        return `data:image/png;base64,${part.inlineData.data}`;
+      }
+    }
+    return null;
+  } catch (error) {
+    console.error("Image Gen Error:", error);
+    return null;
+  }
+};
+
 export const analyzeCommunityTrends = async (posts: string[]): Promise<string> => {
     if (!ai) return "AI services unavailable.";
     

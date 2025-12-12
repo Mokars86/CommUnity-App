@@ -1,19 +1,21 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import * as d3 from 'd3'; 
 import { GoogleGenAI, GenerateContentResponse } from "@google/genai"; // Import SDK
-import { ViewState, PostCategory, Post, User, ChatPreview } from './types';
+import { ViewState, PostCategory, Post, User, ChatPreview, MarketItem } from './types';
 import Navigation from './components/Navigation';
 import { Icons } from './components/Icons';
-import { generatePostEnhancement, analyzeCommunityTrends, searchMapPlaces } from './services/geminiService';
+import { generatePostEnhancement, analyzeCommunityTrends, searchMapPlaces, generateCommunityImage } from './services/geminiService';
 
 // --- MOCK DATA ---
+// Updated: CURRENT_USER is now an Admin
 const CURRENT_USER: User = {
   id: 'u1',
   name: 'Alex Johnson',
   avatar: 'https://picsum.photos/100/100',
   location: 'Greenwood District',
   reputation: 450,
-  isVerified: true
+  isVerified: true,
+  isAdmin: true // Role-Based Access Control
 };
 
 const INITIAL_POSTS: Post[] = [
@@ -21,6 +23,7 @@ const INITIAL_POSTS: Post[] = [
     id: 'p1',
     author: { id: 'u2', name: 'Sarah Connor', avatar: 'https://picsum.photos/101/100', location: 'Greenwood', reputation: 320, isVerified: false },
     category: PostCategory.HELP,
+    title: 'Emergency Plumber Needed',
     content: 'Can anyone recommend a good plumber who is available on weekends? My kitchen sink is leaking badly!',
     likes: 5,
     comments: 8,
@@ -30,6 +33,7 @@ const INITIAL_POSTS: Post[] = [
     id: 'p2',
     author: { id: 'u3', name: 'Mike Ross', avatar: 'https://picsum.photos/102/100', location: 'Greenwood', reputation: 550, isVerified: true },
     category: PostCategory.SAFETY,
+    title: 'Suspicious Activity at Park',
     content: 'Suspicious activity reported near the park entrance. Please stay alert and keep gates locked.',
     alertLevel: 'warning',
     likes: 42,
@@ -40,12 +44,21 @@ const INITIAL_POSTS: Post[] = [
     id: 'p3',
     author: { id: 'u4', name: 'Emily Clark', avatar: 'https://picsum.photos/103/100', location: 'Greenwood', reputation: 120, isVerified: false },
     category: PostCategory.MARKETPLACE,
+    title: 'Vintage Bicycle',
+    price: '$50',
     content: 'Selling a vintage bicycle. Good condition, just needs new tires. $50 obo.',
     image: 'https://picsum.photos/400/250',
     likes: 10,
     comments: 2,
     timestamp: '1d ago'
   }
+];
+
+const MOCK_MARKET_ITEMS: MarketItem[] = [
+    { id: 'm1', title: 'Vintage Lamp', price: '$45', image: 'https://picsum.photos/200/200', seller: 'Alice', location: 'North St' },
+    { id: 'm2', title: 'Garden Tools', price: 'Free', image: 'https://picsum.photos/201/200', seller: 'Bob', location: 'Park Ave' },
+    { id: 'm3', title: 'Kids Bike', price: '$20', image: 'https://picsum.photos/202/200', seller: 'Charlie', location: 'Main St' },
+    { id: 'm4', title: 'Espresso Machine', price: '$150', image: 'https://picsum.photos/203/200', seller: 'Diana', location: 'Oak Ln' },
 ];
 
 // --- SUB-COMPONENTS ---
@@ -189,7 +202,7 @@ const AuthView = ({ onLogin }: { onLogin: () => void }) => {
 
 // --- CORE APP SCREENS ---
 
-const HomeView = ({ posts, setView }: { posts: Post[], setView: (v: ViewState) => void }) => {
+const HomeView = ({ posts, setView, currentUser }: { posts: Post[], setView: (v: ViewState) => void, currentUser: User }) => {
   const [activeTab, setActiveTab] = useState<PostCategory>(PostCategory.ALL);
   const tabs = Object.values(PostCategory);
 
@@ -197,7 +210,23 @@ const HomeView = ({ posts, setView }: { posts: Post[], setView: (v: ViewState) =
     <div className="bg-gray-50 dark:bg-gray-900 min-h-screen pb-24 transition-colors duration-300">
       <Header 
         title="Greenwood District" 
-        rightAction={<button onClick={() => setView(ViewState.ADMIN)}><Icons.Admin size={20} className="text-gray-500 dark:text-gray-400" /></button>}
+        rightAction={
+          <div className="flex gap-2">
+            <button 
+              onClick={() => setView(ViewState.MAP)} 
+              className="p-2 rounded-full hover:bg-gray-100 dark:hover:bg-gray-800 text-teal-600 dark:text-teal-400"
+              aria-label="View Map"
+            >
+              <Icons.Map size={20} />
+            </button>
+            {/* RBAC: Only allow Admin access if user is admin */}
+            {currentUser.isAdmin && (
+                <button onClick={() => setView(ViewState.ADMIN)}>
+                <Icons.Admin size={20} className="text-gray-500 dark:text-gray-400 hover:text-teal-500 transition-colors" />
+                </button>
+            )}
+          </div>
+        }
       />
 
       {/* Categories */}
@@ -240,19 +269,42 @@ const HomeView = ({ posts, setView }: { posts: Post[], setView: (v: ViewState) =
               <button className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-300"><Icons.More size={20} /></button>
             </div>
 
-            {/* Category Tag */}
-            <div className="mb-2">
-              <span className={`inline-block px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wide
-                ${post.category === PostCategory.SAFETY ? 'bg-red-100 dark:bg-red-900/30 text-red-600 dark:text-red-400' : 
-                  post.category === PostCategory.HELP ? 'bg-amber-100 dark:bg-amber-900/30 text-amber-600 dark:text-amber-400' :
-                  'bg-teal-50 dark:bg-teal-900/30 text-teal-600 dark:text-teal-400'
-                }`}>
-                {post.category}
-              </span>
+            {/* Title (New) */}
+            {post.title && (
+                <h3 className="text-base font-bold text-gray-900 dark:text-white mb-2 leading-tight">
+                    {post.title}
+                </h3>
+            )}
+
+            {/* Metadata Tags (New) */}
+            <div className="flex flex-wrap gap-2 mb-3">
+                 <span className={`inline-block px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wide
+                    ${post.category === PostCategory.SAFETY ? 'bg-red-100 dark:bg-red-900/30 text-red-600 dark:text-red-400' : 
+                      post.category === PostCategory.HELP ? 'bg-amber-100 dark:bg-amber-900/30 text-amber-600 dark:text-amber-400' :
+                      'bg-teal-50 dark:bg-teal-900/30 text-teal-600 dark:text-teal-400'
+                    }`}>
+                    {post.category}
+                </span>
+
+                {post.price && (
+                    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wide bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-400">
+                        <Icons.Market size={10} /> {post.price}
+                    </span>
+                )}
+                {post.eventDate && (
+                    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wide bg-purple-100 dark:bg-purple-900/30 text-purple-700 dark:text-purple-400">
+                        <Icons.Event size={10} /> {post.eventDate}
+                    </span>
+                )}
+                 {post.alertLevel && (
+                    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wide bg-red-500 text-white animate-pulse">
+                        <Icons.Safety size={10} /> {post.alertLevel}
+                    </span>
+                )}
             </div>
 
             {/* Content */}
-            <p className="text-gray-800 dark:text-gray-200 text-sm leading-relaxed mb-3">{post.content}</p>
+            <p className="text-gray-800 dark:text-gray-200 text-sm leading-relaxed mb-3 whitespace-pre-line">{post.content}</p>
             {post.image && (
               <img src={post.image} alt="Post content" className="w-full h-48 object-cover rounded-xl mb-3" />
             )}
@@ -280,7 +332,17 @@ const HomeView = ({ posts, setView }: { posts: Post[], setView: (v: ViewState) =
 
 const CreatePostView = ({ onBack, onSubmit }: { onBack: () => void, onSubmit: (post: Post) => void }) => {
   const [draft, setDraft] = useState('');
+  const [title, setTitle] = useState('');
+  const [price, setPrice] = useState('');
+  const [eventDate, setEventDate] = useState('');
+  const [urgency, setUrgency] = useState<'info' | 'warning' | 'emergency'>('info');
+  
   const [isEnhancing, setIsEnhancing] = useState(false);
+  const [isGeneratingImg, setIsGeneratingImg] = useState(false);
+  const [generatedImage, setGeneratedImage] = useState<string | null>(null);
+  const [showImgPrompt, setShowImgPrompt] = useState(false);
+  const [imgPrompt, setImgPrompt] = useState('');
+  
   const [selectedType, setSelectedType] = useState<PostCategory | null>(null);
 
   const handleEnhance = async () => {
@@ -291,6 +353,17 @@ const CreatePostView = ({ onBack, onSubmit }: { onBack: () => void, onSubmit: (p
     setIsEnhancing(false);
   };
 
+  const handleGenerateImage = async () => {
+    if (!imgPrompt) return;
+    setIsGeneratingImg(true);
+    const base64Img = await generateCommunityImage(imgPrompt);
+    if (base64Img) {
+      setGeneratedImage(base64Img);
+      setShowImgPrompt(false);
+    }
+    setIsGeneratingImg(false);
+  };
+
   const handlePost = () => {
     if (!selectedType || !draft) return;
     
@@ -298,11 +371,15 @@ const CreatePostView = ({ onBack, onSubmit }: { onBack: () => void, onSubmit: (p
         id: `p${Date.now()}`,
         author: CURRENT_USER,
         category: selectedType,
+        title: title || undefined,
+        price: price || undefined,
+        eventDate: eventDate || undefined,
         content: draft,
+        image: generatedImage || undefined,
         likes: 0,
         comments: 0,
         timestamp: 'Just now',
-        alertLevel: selectedType === PostCategory.SAFETY ? 'warning' : undefined
+        alertLevel: selectedType === PostCategory.SAFETY ? urgency : undefined
     };
     
     onSubmit(newPost);
@@ -321,19 +398,22 @@ const CreatePostView = ({ onBack, onSubmit }: { onBack: () => void, onSubmit: (p
     return (
       <div className="fixed inset-0 bg-white dark:bg-gray-900 z-50 flex flex-col transition-colors duration-300">
         <Header title="Create New Post" onBack={onBack} />
-        <div className="p-6 grid grid-cols-2 gap-4">
-          {options.map((opt) => (
-            <button
-              key={opt.label}
-              onClick={() => setSelectedType(opt.type)}
-              className={`flex flex-col items-center justify-center p-6 rounded-2xl border border-gray-100 dark:border-gray-700 shadow-sm hover:shadow-md transition-all ${opt.color.replace('text-', 'hover:bg-opacity-80 bg-opacity-40')}`}
-            >
-              <div className={`p-4 rounded-full mb-3 ${opt.color}`}>
-                <opt.icon size={28} />
-              </div>
-              <span className="font-semibold text-gray-800 dark:text-gray-200 text-sm">{opt.label}</span>
-            </button>
-          ))}
+        <div className="p-6">
+           <h2 className="text-xl font-bold text-gray-800 dark:text-white mb-6">What would you like to share?</h2>
+           <div className="grid grid-cols-2 gap-4">
+              {options.map((opt) => (
+                <button
+                  key={opt.label}
+                  onClick={() => setSelectedType(opt.type)}
+                  className={`flex flex-col items-center justify-center p-6 rounded-2xl border border-gray-100 dark:border-gray-700 shadow-sm hover:shadow-md transition-all ${opt.color.replace('text-', 'hover:bg-opacity-80 bg-opacity-40')}`}
+                >
+                  <div className={`p-4 rounded-full mb-3 ${opt.color}`}>
+                    <opt.icon size={28} />
+                  </div>
+                  <span className="font-semibold text-gray-800 dark:text-gray-200 text-sm">{opt.label}</span>
+                </button>
+              ))}
+          </div>
         </div>
       </div>
     );
@@ -341,51 +421,236 @@ const CreatePostView = ({ onBack, onSubmit }: { onBack: () => void, onSubmit: (p
 
   return (
     <div className="fixed inset-0 bg-white dark:bg-gray-900 z-50 flex flex-col transition-colors duration-300">
-       <div className="flex items-center justify-between px-4 py-3 border-b border-gray-100 dark:border-gray-800">
-          <button onClick={() => setSelectedType(null)} className="text-gray-500 dark:text-gray-400"><Icons.ArrowLeft /></button>
-          <span className="font-semibold text-gray-900 dark:text-white">{selectedType} Post</span>
-          <button onClick={handlePost} className="text-teal-600 dark:text-teal-400 font-bold text-sm">Post</button>
+       {/* Header */}
+       <div className="flex items-center justify-between px-4 py-3 border-b border-gray-100 dark:border-gray-800 bg-white dark:bg-gray-900 sticky top-0 z-10">
+          <button onClick={() => setSelectedType(null)} className="text-gray-500 dark:text-gray-400 p-2 -ml-2"><Icons.ArrowLeft /></button>
+          <span className="font-bold text-gray-900 dark:text-white">New {selectedType} Post</span>
+          <button 
+             onClick={handlePost} 
+             disabled={!draft}
+             className="bg-teal-600 hover:bg-teal-700 text-white px-4 py-1.5 rounded-full font-bold text-sm disabled:opacity-50 transition-colors"
+          >
+            Post
+          </button>
        </div>
-       <div className="p-4 flex-1">
-          <textarea
-            value={draft}
-            onChange={(e) => setDraft(e.target.value)}
-            placeholder="What's on your mind?"
-            className="w-full h-48 p-4 text-lg bg-transparent text-gray-900 dark:text-white border-none resize-none focus:ring-0 placeholder-gray-300 dark:placeholder-gray-600"
-          />
-          
-          <div className="flex gap-2 mb-4 overflow-x-auto">
-             <button className="flex items-center gap-2 px-4 py-2 bg-gray-50 dark:bg-gray-800 rounded-lg text-gray-600 dark:text-gray-300 text-sm font-medium border border-gray-200 dark:border-gray-700">
-               <Icons.Camera size={16} /> Photo
-             </button>
-             <button className="flex items-center gap-2 px-4 py-2 bg-gray-50 dark:bg-gray-800 rounded-lg text-gray-600 dark:text-gray-300 text-sm font-medium border border-gray-200 dark:border-gray-700">
-               <Icons.Pin size={16} /> Location
-             </button>
-          </div>
+       
+       <div className="flex-1 overflow-y-auto">
+          <div className="p-4 space-y-4">
+              
+              {/* Dynamic Inputs based on Category */}
+              {selectedType === PostCategory.MARKETPLACE && (
+                  <div className="flex gap-4">
+                     <div className="flex-1">
+                        <label className="block text-xs font-semibold text-gray-500 uppercase mb-1">Item Name</label>
+                        <input 
+                            value={title} 
+                            onChange={e => setTitle(e.target.value)} 
+                            placeholder="e.g. Vintage Chair"
+                            className="w-full bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl p-3 focus:ring-2 focus:ring-teal-500 outline-none dark:text-white"
+                        />
+                     </div>
+                     <div className="w-1/3">
+                        <label className="block text-xs font-semibold text-gray-500 uppercase mb-1">Price</label>
+                        <input 
+                            value={price} 
+                            onChange={e => setPrice(e.target.value)} 
+                            placeholder="$0"
+                            className="w-full bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl p-3 focus:ring-2 focus:ring-teal-500 outline-none dark:text-white"
+                        />
+                     </div>
+                  </div>
+              )}
 
-          <div className="bg-teal-50 dark:bg-teal-900/20 rounded-xl p-4 border border-teal-100 dark:border-teal-800">
-            <div className="flex justify-between items-center mb-2">
-              <h4 className="text-sm font-bold text-teal-800 dark:text-teal-300 flex items-center gap-2">
-                <Icons.Lightbulb size={16} /> AI Assistant
-              </h4>
-              <button 
+              {selectedType === PostCategory.EVENTS && (
+                  <div className="flex gap-4">
+                     <div className="flex-1">
+                        <label className="block text-xs font-semibold text-gray-500 uppercase mb-1">Event Title</label>
+                        <input 
+                            value={title} 
+                            onChange={e => setTitle(e.target.value)} 
+                            placeholder="e.g. Block Party"
+                            className="w-full bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl p-3 focus:ring-2 focus:ring-teal-500 outline-none dark:text-white"
+                        />
+                     </div>
+                     <div className="w-1/3">
+                        <label className="block text-xs font-semibold text-gray-500 uppercase mb-1">When?</label>
+                        <input 
+                            value={eventDate} 
+                            onChange={e => setEventDate(e.target.value)} 
+                            placeholder="Sat, 2pm"
+                            className="w-full bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl p-3 focus:ring-2 focus:ring-teal-500 outline-none dark:text-white"
+                        />
+                     </div>
+                  </div>
+              )}
+
+              {selectedType === PostCategory.SAFETY && (
+                  <div>
+                      <label className="block text-xs font-semibold text-gray-500 uppercase mb-1">Subject</label>
+                      <input 
+                            value={title} 
+                            onChange={e => setTitle(e.target.value)} 
+                            placeholder="e.g. Suspicious Activity"
+                            className="w-full bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl p-3 mb-3 focus:ring-2 focus:ring-red-500 outline-none dark:text-white"
+                        />
+                      <label className="block text-xs font-semibold text-gray-500 uppercase mb-1">Urgency Level</label>
+                      <div className="flex gap-2">
+                          {(['info', 'warning', 'emergency'] as const).map(lvl => (
+                              <button 
+                                key={lvl}
+                                onClick={() => setUrgency(lvl)}
+                                className={`flex-1 py-2 rounded-lg text-sm font-bold capitalize transition-colors ${
+                                    urgency === lvl 
+                                    ? (lvl === 'emergency' ? 'bg-red-500 text-white' : lvl === 'warning' ? 'bg-amber-500 text-white' : 'bg-blue-500 text-white')
+                                    : 'bg-gray-100 dark:bg-gray-800 text-gray-500'
+                                }`}
+                              >
+                                  {lvl}
+                              </button>
+                          ))}
+                      </div>
+                  </div>
+              )}
+              
+              {/* Default Title input for generic posts if not covered above */}
+              {(selectedType === PostCategory.IDEAS || selectedType === PostCategory.HELP) && (
+                   <div>
+                        <label className="block text-xs font-semibold text-gray-500 uppercase mb-1">Title</label>
+                        <input 
+                            value={title} 
+                            onChange={e => setTitle(e.target.value)} 
+                            placeholder={selectedType === PostCategory.HELP ? "What do you need help with?" : "Share your idea..."}
+                            className="w-full bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl p-3 focus:ring-2 focus:ring-teal-500 outline-none dark:text-white"
+                        />
+                     </div>
+              )}
+
+              {/* Main Content Area */}
+              <div>
+                  <label className="block text-xs font-semibold text-gray-500 uppercase mb-1">Details</label>
+                  <textarea
+                    value={draft}
+                    onChange={(e) => setDraft(e.target.value)}
+                    placeholder="Write your post here..."
+                    className="w-full h-40 p-3 text-base bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl resize-none focus:ring-2 focus:ring-teal-500 outline-none dark:text-white placeholder-gray-400"
+                  />
+              </div>
+
+              {/* Generated Image Preview */}
+              {generatedImage && (
+                <div className="relative rounded-xl overflow-hidden shadow-sm border border-gray-200 dark:border-gray-700 group">
+                  <img src={generatedImage} alt="Generated" className="w-full h-48 object-cover" />
+                  <button 
+                    onClick={() => setGeneratedImage(null)}
+                    className="absolute top-2 right-2 bg-black/50 p-1.5 rounded-full text-white hover:bg-red-500 transition-colors"
+                  >
+                    <Icons.Close size={16} />
+                  </button>
+                </div>
+              )}
+
+              {/* AI Image Generation Prompt */}
+              {showImgPrompt && (
+                <div className="p-4 bg-purple-50 dark:bg-purple-900/10 rounded-xl border border-purple-100 dark:border-purple-900/30 animate-in fade-in slide-in-from-top-2">
+                  <div className="flex justify-between items-center mb-2">
+                     <label className="text-xs font-bold text-purple-700 dark:text-purple-300 flex items-center gap-1">
+                        <Icons.Star size={12} className="fill-current"/> AI Image Generator
+                     </label>
+                     <button onClick={() => setShowImgPrompt(false)}><Icons.Close size={14} className="text-purple-400"/></button>
+                  </div>
+                  <div className="flex gap-2">
+                    <input 
+                      type="text" 
+                      value={imgPrompt}
+                      onChange={(e) => setImgPrompt(e.target.value)}
+                      placeholder="e.g., A community garden in spring"
+                      className="flex-1 bg-white dark:bg-gray-900 border border-purple-200 dark:border-purple-800 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-purple-500 dark:text-white"
+                    />
+                    <button 
+                      onClick={handleGenerateImage}
+                      disabled={isGeneratingImg || !imgPrompt}
+                      className="bg-purple-600 hover:bg-purple-700 text-white px-4 py-2 rounded-lg text-xs font-bold disabled:opacity-50 transition-colors"
+                    >
+                      {isGeneratingImg ? 'Creating...' : 'Create'}
+                    </button>
+                  </div>
+                </div>
+              )}
+          </div>
+       </div>
+
+       {/* Toolbar */}
+       <div className="p-3 border-t border-gray-100 dark:border-gray-800 bg-gray-50 dark:bg-gray-900 flex items-center gap-2 overflow-x-auto no-scrollbar pb-safe">
+            <button className="p-3 rounded-full bg-white dark:bg-gray-800 text-gray-500 dark:text-gray-400 border border-gray-200 dark:border-gray-700 shadow-sm hover:text-teal-600 dark:hover:text-teal-400 transition-colors">
+               <Icons.Camera size={20} />
+            </button>
+            <button className="p-3 rounded-full bg-white dark:bg-gray-800 text-gray-500 dark:text-gray-400 border border-gray-200 dark:border-gray-700 shadow-sm hover:text-teal-600 dark:hover:text-teal-400 transition-colors">
+               <Icons.Pin size={20} />
+            </button>
+            
+            <div className="h-8 w-px bg-gray-300 dark:bg-gray-700 mx-1"></div>
+
+            <button 
+                onClick={() => setShowImgPrompt(!showImgPrompt)}
+                className={`flex items-center gap-2 px-4 py-2.5 rounded-full text-sm font-bold shadow-sm transition-all whitespace-nowrap ${showImgPrompt ? 'bg-purple-100 text-purple-700 ring-2 ring-purple-500' : 'bg-white dark:bg-gray-800 text-purple-600 dark:text-purple-400 border border-purple-100 dark:border-gray-700 hover:bg-purple-50 dark:hover:bg-purple-900/20'}`}
+            >
+               <Icons.Idea size={18} /> Generate Image
+            </button>
+            
+            <button 
                 onClick={handleEnhance}
                 disabled={isEnhancing || !draft}
-                className="text-xs bg-teal-600 text-white px-3 py-1.5 rounded-md hover:bg-teal-700 disabled:opacity-50"
-              >
-                {isEnhancing ? 'Thinking...' : 'Refine Text'}
-              </button>
-            </div>
-            <p className="text-xs text-teal-700 dark:text-teal-400 leading-relaxed">
-              Use Gemini AI to polish your post, fix grammar, or make it friendlier for the community.
-            </p>
-          </div>
+                className="flex items-center gap-2 px-4 py-2.5 rounded-full bg-white dark:bg-gray-800 text-teal-600 dark:text-teal-400 border border-teal-100 dark:border-gray-700 text-sm font-bold shadow-sm hover:bg-teal-50 dark:hover:bg-teal-900/20 transition-all whitespace-nowrap disabled:opacity-50"
+            >
+               {isEnhancing ? <div className="animate-spin h-4 w-4 border-2 border-teal-600 border-t-transparent rounded-full"></div> : <Icons.Lightbulb size={18} />}
+               Refine Text
+            </button>
        </div>
     </div>
   );
 };
 
-const MapView = () => {
+const MarketplaceView = () => (
+  <div className="bg-gray-50 dark:bg-gray-900 min-h-screen pb-24 transition-colors duration-300">
+    <Header title="Marketplace" rightAction={<Icons.Search className="text-gray-500" />} />
+    
+    <div className="p-4">
+      {/* Categories Pills */}
+      <div className="flex gap-2 overflow-x-auto no-scrollbar mb-4">
+        {['All', 'Furniture', 'Electronics', 'Clothing', 'Free'].map(cat => (
+          <button key={cat} className="px-4 py-1.5 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-full text-sm font-medium text-gray-700 dark:text-gray-300 whitespace-nowrap">
+            {cat}
+          </button>
+        ))}
+      </div>
+
+      {/* Grid */}
+      <div className="grid grid-cols-2 gap-4">
+        {MOCK_MARKET_ITEMS.map(item => (
+          <div key={item.id} className="bg-white dark:bg-gray-800 rounded-xl overflow-hidden shadow-sm border border-gray-100 dark:border-gray-700">
+            <div className="relative h-40">
+              <img src={item.image} alt={item.title} className="w-full h-full object-cover" />
+              <div className="absolute bottom-2 left-2 bg-black/60 backdrop-blur-sm text-white text-xs font-bold px-2 py-1 rounded">
+                {item.price}
+              </div>
+            </div>
+            <div className="p-3">
+              <h3 className="font-semibold text-gray-900 dark:text-white text-sm truncate">{item.title}</h3>
+              <div className="flex justify-between items-center mt-2">
+                 <span className="text-xs text-gray-500 dark:text-gray-400 flex items-center gap-1">
+                   <Icons.Pin size={10} /> {item.location}
+                 </span>
+                 <span className="text-xs text-teal-600 dark:text-teal-400 font-medium">{item.seller}</span>
+              </div>
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  </div>
+);
+
+const MapView = ({ onBack }: { onBack: () => void }) => {
   const [query, setQuery] = useState('');
   const [userLoc, setUserLoc] = useState<{lat: number, lng: number} | null>(null);
   const [isSearching, setIsSearching] = useState(false);
@@ -412,24 +677,28 @@ const MapView = () => {
   };
 
   return (
-    <div className="h-full w-full bg-gray-200 dark:bg-gray-800 relative flex flex-col transition-colors duration-300">
-      <div className="absolute top-4 left-4 right-4 z-20">
-        <form onSubmit={handleSearch} className="bg-white dark:bg-gray-800 p-3 rounded-xl shadow-lg flex items-center gap-2 border border-transparent dark:border-gray-700">
+    <div className="h-full w-full bg-gray-200 dark:bg-gray-800 relative flex flex-col transition-colors duration-300 fixed inset-0 z-50">
+      <div className="absolute top-4 left-4 right-4 z-20 flex gap-2">
+         <button onClick={onBack} className="bg-white dark:bg-gray-800 p-3 rounded-xl shadow-lg text-gray-600 dark:text-gray-300">
+            <Icons.ArrowLeft size={20} />
+         </button>
+        <form onSubmit={handleSearch} className="flex-1 bg-white dark:bg-gray-800 p-3 rounded-xl shadow-lg flex items-center gap-2 border border-transparent dark:border-gray-700">
           <Icons.Search className="text-gray-400" size={20} />
           <input 
             type="text" 
             value={query}
             onChange={(e) => setQuery(e.target.value)}
-            placeholder="Find places, events, or addresses..." 
+            placeholder="Find places, events..." 
             className="flex-1 outline-none text-sm bg-transparent text-gray-900 dark:text-white placeholder-gray-400" 
           />
           {isSearching && <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-teal-500"></div>}
           {searchResults && <button type="button" onClick={() => {setSearchResults(null); setQuery('')}}><Icons.Close size={18} className="text-gray-400"/></button>}
         </form>
+      </div>
 
-        {/* Search Results Overlay */}
+       {/* Search Results Overlay */}
         {searchResults && (
-          <div className="mt-3 bg-white/95 dark:bg-gray-800/95 backdrop-blur-md rounded-xl shadow-xl border border-gray-100 dark:border-gray-700 p-4 max-h-[60vh] overflow-y-auto">
+          <div className="absolute top-20 left-4 right-4 z-20 mt-3 bg-white/95 dark:bg-gray-800/95 backdrop-blur-md rounded-xl shadow-xl border border-gray-100 dark:border-gray-700 p-4 max-h-[60vh] overflow-y-auto">
             <h3 className="font-bold text-gray-800 dark:text-white mb-2 text-sm flex items-center gap-2">
               <Icons.Map size={16} className="text-teal-600 dark:text-teal-400"/> Results for "{query}"
             </h3>
@@ -461,7 +730,6 @@ const MapView = () => {
             )}
           </div>
         )}
-      </div>
       
       {/* Simulated Map */}
       <div className="flex-1 flex items-center justify-center bg-blue-50 dark:bg-slate-900 overflow-hidden relative transition-colors duration-300">
@@ -487,17 +755,10 @@ const MapView = () => {
           </div>
           <span className="bg-white dark:bg-gray-800 dark:text-white px-2 py-1 rounded shadow text-xs font-bold mt-1">Community Center</span>
         </div>
-  
-         <div className="absolute bottom-1/3 right-1/4 transform -translate-x-1/2 -translate-y-1/2 flex flex-col items-center group cursor-pointer">
-          <div className="w-8 h-8 bg-purple-500 rounded-full flex items-center justify-center text-white shadow-lg border-2 border-white dark:border-gray-800">
-             <Icons.Event size={16} />
-          </div>
-          <span className="bg-white dark:bg-gray-800 dark:text-white px-2 py-1 rounded shadow text-xs font-bold mt-1 opacity-0 group-hover:opacity-100 transition-opacity">Park Event</span>
-        </div>
       </div>
   
       {/* Map Controls */}
-      <div className="absolute bottom-24 right-4 flex flex-col gap-2">
+      <div className="absolute bottom-10 right-4 flex flex-col gap-2">
          <button 
             className="bg-white dark:bg-gray-800 p-3 rounded-full shadow-lg hover:bg-gray-50 dark:hover:bg-gray-700"
             onClick={() => {
@@ -827,10 +1088,14 @@ const ProfileView = ({ isDarkMode, toggleTheme, onLogout }: { isDarkMode: boolea
   </div>
 );
 
-const AdminView = ({ onBack }: { onBack: () => void }) => {
+const AdminView = ({ onBack, posts, onDeletePost }: { onBack: () => void, posts: Post[], onDeletePost: (id: string) => void }) => {
     // D3 Visualization for Member Analytics
     const d3Container = useRef(null);
-    const [insight, setInsight] = useState("Analyzing data...");
+    const [insight, setInsight] = useState("Analyzing latest community data...");
+
+    // Stats Logic based on real 'posts' prop
+    const safetyAlerts = posts.filter(p => p.category === PostCategory.SAFETY).length;
+    const weeklyPosts = posts.length; // Simplified for demo
 
     useEffect(() => {
         if (d3Container.current) {
@@ -892,39 +1157,32 @@ const AdminView = ({ onBack }: { onBack: () => void }) => {
                 .attr("rx", 4);
         }
 
-        // Simulate AI analysis
-        analyzeCommunityTrends([
-            "Concern about park safety at night",
-            "Request for more weekend cleanup events",
-            "High interest in summer block party",
-            "Complaints about speeding on Main St"
-        ]).then(setInsight);
+        // Real AI analysis of current posts
+        if (posts.length > 0) {
+            analyzeCommunityTrends(posts.map(p => p.content)).then(setInsight);
+        } else {
+            setInsight("No posts to analyze yet.");
+        }
 
-    }, []);
+    }, [posts]);
 
     return (
         <div className="min-h-screen bg-gray-50 dark:bg-gray-900 pb-20 transition-colors duration-300">
             <Header title="Admin Panel" onBack={onBack} />
             <div className="p-4 space-y-4">
+                {/* Stats Cards */}
                 <div className="grid grid-cols-2 gap-4">
                     <div className="bg-white dark:bg-gray-800 p-4 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700">
-                        <h3 className="text-gray-500 dark:text-gray-400 text-xs uppercase font-bold tracking-wider">New Members</h3>
-                        <p className="text-2xl font-bold text-gray-900 dark:text-white mt-1">+24 <span className="text-green-500 text-xs font-normal">this week</span></p>
+                        <h3 className="text-gray-500 dark:text-gray-400 text-xs uppercase font-bold tracking-wider">Total Posts</h3>
+                        <p className="text-2xl font-bold text-gray-900 dark:text-white mt-1">{weeklyPosts} <span className="text-green-500 text-xs font-normal">active</span></p>
                     </div>
                     <div className="bg-white dark:bg-gray-800 p-4 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700">
-                         <h3 className="text-gray-500 dark:text-gray-400 text-xs uppercase font-bold tracking-wider">Pending Posts</h3>
-                        <p className="text-2xl font-bold text-gray-900 dark:text-white mt-1">8 <span className="text-amber-500 text-xs font-normal">need review</span></p>
+                         <h3 className="text-gray-500 dark:text-gray-400 text-xs uppercase font-bold tracking-wider">Safety Alerts</h3>
+                        <p className="text-2xl font-bold text-gray-900 dark:text-white mt-1">{safetyAlerts} <span className="text-red-500 text-xs font-normal">reports</span></p>
                     </div>
                 </div>
 
-                <div className="bg-white dark:bg-gray-800 p-5 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700">
-                    <h3 className="font-bold text-gray-800 dark:text-white mb-4 flex items-center gap-2">
-                        <Icons.Chart size={18} className="text-teal-600 dark:text-teal-400"/>
-                        Weekly Activity
-                    </h3>
-                    <div ref={d3Container} className="flex justify-center"></div>
-                </div>
-
+                {/* AI Analysis */}
                 <div className="bg-indigo-50 dark:bg-indigo-900/20 p-4 rounded-xl border border-indigo-100 dark:border-indigo-900">
                     <h3 className="font-bold text-indigo-900 dark:text-indigo-300 mb-2 flex items-center gap-2">
                         <Icons.Lightbulb size={18} />
@@ -935,20 +1193,36 @@ const AdminView = ({ onBack }: { onBack: () => void }) => {
                     </p>
                 </div>
 
+                {/* D3 Chart */}
+                <div className="bg-white dark:bg-gray-800 p-5 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700">
+                    <h3 className="font-bold text-gray-800 dark:text-white mb-4 flex items-center gap-2">
+                        <Icons.Chart size={18} className="text-teal-600 dark:text-teal-400"/>
+                        Weekly Activity
+                    </h3>
+                    <div ref={d3Container} className="flex justify-center"></div>
+                </div>
+
+                {/* Post Management */}
                 <div className="space-y-2">
-                    <h3 className="font-bold text-gray-800 dark:text-white ml-1">Quick Actions</h3>
-                     <button className="w-full bg-white dark:bg-gray-800 p-4 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700 flex items-center justify-between hover:bg-gray-50 dark:hover:bg-gray-700">
-                        <span className="flex items-center gap-3 font-medium text-gray-700 dark:text-gray-200">
-                            <Icons.Safety className="text-red-500" size={20}/> Manage Safety Alerts
-                        </span>
-                        <Icons.ArrowRight size={16} className="text-gray-400"/>
-                    </button>
-                    <button className="w-full bg-white dark:bg-gray-800 p-4 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700 flex items-center justify-between hover:bg-gray-50 dark:hover:bg-gray-700">
-                        <span className="flex items-center gap-3 font-medium text-gray-700 dark:text-gray-200">
-                            <Icons.MessageSquare className="text-blue-500" size={20}/> Review Reported Content
-                        </span>
-                        <Icons.ArrowRight size={16} className="text-gray-400"/>
-                    </button>
+                    <h3 className="font-bold text-gray-800 dark:text-white ml-1">Manage Recent Content</h3>
+                    <div className="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700 overflow-hidden">
+                        {posts.map(post => (
+                            <div key={post.id} className="p-3 border-b border-gray-100 dark:border-gray-700 flex justify-between items-center last:border-0">
+                                <div className="flex-1 min-w-0 mr-3">
+                                    <p className="text-sm font-medium text-gray-900 dark:text-white truncate">{post.title || post.content}</p>
+                                    <p className="text-xs text-gray-500">{post.author.name} • {post.category}</p>
+                                </div>
+                                <button 
+                                    onClick={() => onDeletePost(post.id)}
+                                    className="p-2 bg-red-50 dark:bg-red-900/20 text-red-600 dark:text-red-400 rounded-lg hover:bg-red-100 dark:hover:bg-red-900/40 transition-colors"
+                                    title="Delete Post"
+                                >
+                                    <Icons.Close size={16} />
+                                </button>
+                            </div>
+                        ))}
+                        {posts.length === 0 && <div className="p-4 text-center text-sm text-gray-400">No posts available.</div>}
+                    </div>
                 </div>
             </div>
         </div>
@@ -970,6 +1244,12 @@ const App: React.FC = () => {
       setView(ViewState.HOME);
   };
 
+  const handleDeletePost = (postId: string) => {
+      if(window.confirm("Are you sure you want to delete this post?")) {
+        setPosts(prev => prev.filter(p => p.id !== postId));
+      }
+  };
+
   const handleSelectChat = (chatId: string) => {
       setActiveChatId(chatId);
       setView(ViewState.CHAT_DETAIL);
@@ -989,11 +1269,13 @@ const App: React.FC = () => {
       case ViewState.AUTH_SIGNUP:
         return <AuthView onLogin={() => setView(ViewState.HOME)} />;
       case ViewState.HOME:
-        return <HomeView posts={posts} setView={setView} />;
+        return <HomeView posts={posts} setView={setView} currentUser={CURRENT_USER} />;
       case ViewState.CREATE_POST:
         return <CreatePostView onSubmit={handleCreatePost} onBack={() => setView(ViewState.HOME)} />;
       case ViewState.MAP:
-        return <MapView />;
+        return <MapView onBack={() => setView(ViewState.HOME)} />;
+      case ViewState.MARKETPLACE:
+        return <MarketplaceView />;
       case ViewState.CHATS:
         return <ChatsView onSelectChat={handleSelectChat} />;
       case ViewState.CHAT_DETAIL:
@@ -1001,9 +1283,9 @@ const App: React.FC = () => {
       case ViewState.PROFILE:
         return <ProfileView isDarkMode={isDarkMode} toggleTheme={toggleTheme} onLogout={handleLogout} />;
       case ViewState.ADMIN:
-        return <AdminView onBack={() => setView(ViewState.HOME)} />;
+        return <AdminView onBack={() => setView(ViewState.HOME)} posts={posts} onDeletePost={handleDeletePost} />;
       default:
-        return <HomeView posts={posts} setView={setView} />;
+        return <HomeView posts={posts} setView={setView} currentUser={CURRENT_USER} />;
     }
   };
 
