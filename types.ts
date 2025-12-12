@@ -7,6 +7,7 @@ export enum ViewState {
   HOME = 'HOME',
   MAP = 'MAP',
   CHATS = 'CHATS',
+  CHAT_DETAIL = 'CHAT_DETAIL', // New view for active chat
   PROFILE = 'PROFILE',
   MARKETPLACE = 'MARKETPLACE',
   ADMIN = 'ADMIN',
@@ -50,6 +51,7 @@ export interface ChatPreview {
   timestamp: string;
   unread: number;
   avatar: string;
+  isAi?: boolean; // Identify AI chat
 }
 
 export interface MarketItem {

@@ -57,3 +57,39 @@ export const analyzeCommunityTrends = async (posts: string[]): Promise<string> =
         return "Could not analyze trends.";
     }
 }
+
+export const searchMapPlaces = async (query: string, userLocation?: { lat: number, lng: number }): Promise<{ text: string, chunks: any[] }> => {
+  if (!ai) return { text: "AI service unavailable. Please check API Key.", chunks: [] };
+
+  try {
+    // Default to a generic location (e.g., San Francisco) if user location isn't provided
+    // In a real scenario, this helps ground the query significantly.
+    const lat = userLocation?.lat || 37.7749;
+    const lng = userLocation?.lng || -122.4194;
+
+    const response = await ai.models.generateContent({
+      model: "gemini-2.5-flash",
+      contents: `Find places or events matching "${query}" near me. Provide a helpful summary.`,
+      config: {
+        tools: [{ googleMaps: {} }],
+        toolConfig: {
+          retrievalConfig: {
+            latLng: {
+              latitude: lat,
+              longitude: lng
+            }
+          }
+        }
+      },
+    });
+
+    return {
+      text: response.text || "No results found.",
+      // Return the grounding chunks which contain the specific map data/links
+      chunks: response.candidates?.[0]?.groundingMetadata?.groundingChunks || []
+    };
+  } catch (error) {
+    console.error("Map Search Error:", error);
+    return { text: "Could not perform search at this time.", chunks: [] };
+  }
+};

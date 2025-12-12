@@ -5,7 +5,7 @@ import {
   MoreHorizontal, ArrowRight, ArrowLeft, ShieldAlert,
   ShoppingBag, Calendar, Lightbulb, HandHeart, CheckCircle,
   AlertTriangle, Info, Camera, Mic, MapPin, X, Settings,
-  LogOut, Shield, BarChart, ExternalLink, Star
+  LogOut, Shield, BarChart, ExternalLink, Star, Sun, Moon
 } from 'lucide-react';
 
 export const Icons = {
@@ -20,5 +20,7 @@ export const Icons = {
   MessageSquare,
   MessageCircle,
   Lightbulb,
-  Star
+  Star,
+  Sun, 
+  Moon
 };
