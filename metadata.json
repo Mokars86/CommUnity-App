@@ -1,0 +1,7 @@
+{
+  "name": "CommUnityLink",
+  "description": "A professional community platform connecting neighbors, empowering people, and facilitating local interaction with AI-powered features.",
+  "requestFramePermissions": [
+    "geolocation"
+  ]
+}
